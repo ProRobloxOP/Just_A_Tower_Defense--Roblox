@@ -1,5 +1,5 @@
 --> Additional Comments <--
-The health script was used to create a health bar gui on enemy models locally. 
+--> The health script was used to create a health bar gui on enemy models locally. <--
 
 --> Script <--
 local Players = game:GetService("Players")
