@@ -1,0 +1,165 @@
+--> Additional Comments <--
+The health script was used to create a health bar gui on enemy models locally. 
+
+--> Script <--
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local ViewportGuiModule = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("ViewportGui"))
+
+local health = {
+	DefensiveObjects = {
+		ArmorStats = Color3.new(1, 0.866911, 0.13785),
+	}
+}
+
+function health.AddViewportFrame(HealthGui, viewPortFrame, model)
+	if viewPortFrame and model then
+		local clonedModel = model:Clone()
+		local worldModelHolder = Instance.new("WorldModel")
+
+		worldModelHolder.PrimaryPart = clonedModel.PrimaryPart
+		for i, child in pairs(clonedModel:GetChildren()) do
+			child.Parent = worldModelHolder
+		end
+		clonedModel:Destroy()
+		clonedModel = worldModelHolder
+		worldModelHolder = nil
+		clonedModel.Parent = viewPortFrame
+		
+		if clonedModel.PrimaryPart then
+			clonedModel.PrimaryPart.CFrame = clonedModel.PrimaryPart.CFrame * CFrame.Angles(0, math.rad(-200), 0)
+		end
+		
+		if model:IsDescendantOf(workspace.Mobs) then
+			ViewportGuiModule.CreateCamera(viewPortFrame, clonedModel)
+			HealthGui.Enabled = false
+			HealthGui.StudsOffset = Vector3.new(0, 1, 0)
+			HealthGui.Size = UDim2.new(7, 0, 0.8, 0)
+			HealthGui.MaxDistance = 100000000
+			ReplicatedStorage.Bindable.BindableEvents.AnimateModel:Fire(clonedModel, "Walk")
+
+			if clonedModel.Config:FindFirstChild("Effects") and clonedModel.Config:FindFirstChild("Effects"):FindFirstChild("Boss") then
+				for i, descendant in pairs(HealthGui:GetDescendants()) do
+					if descendant.Name == "CurrentHealth" then
+						descendant.BackgroundColor3 = Color3.new(0.566278, 0.106706, 1)
+					end
+				end 
+			end
+		elseif model.Name == "Base" then
+			clonedModel:PivotTo(workspace.PartForBase.CFrame)
+		end
+	end
+end
+
+function health.GetDefensiveValue(defensiveObjectName, model)
+	if defensiveObjectName == "ArmorStats" then
+		local Health = model.Config.ArmorStats:FindFirstChild("Health")
+		local MaxHealth = model.Config.ArmorStats:FindFirstChild("MaxHealth")
+		
+		if Health and MaxHealth then
+			return {ArmorStats = {Health, MaxHealth, 1}}
+		end
+	end
+	return nil
+end
+
+function health.Setup(model, list)
+	pcall(function()
+		local newHealthBar = script.HealthGui:Clone()
+
+		if model.Name ~= "Base" then
+			local defensiveObjectSettings = {}
+			local modelHasDefensiveObject = false
+			for defensiveObjectName, color3Represenitive in pairs(health.DefensiveObjects) do
+				if model.Parent == workspace.Mobs and model:WaitForChild("Config"):FindFirstChild(defensiveObjectName) then
+					modelHasDefensiveObject = true
+					for i, descendant in pairs(newHealthBar:GetDescendants()) do
+						if descendant.Name == "CurrentHealth" then
+							descendant.BackgroundColor3 = color3Represenitive
+						end
+					end
+					defensiveObjectSettings[defensiveObjectName] = health.GetDefensiveValue(defensiveObjectName, model)[defensiveObjectName]
+				end
+			end
+
+			if list and list["choosenAdornee"] then
+				newHealthBar.Adornee = list["choosenAdornee"]
+			elseif model.Humanoid and model.Humanoid.Health > 0 then
+				newHealthBar.Adornee = model:WaitForChild("Head")
+			end
+			newHealthBar.Parent = Players.LocalPlayer.PlayerGui.Billboards
+
+			if not modelHasDefensiveObject then
+				health.UpdateHealth(newHealthBar, model)
+				health.AddViewportFrame(newHealthBar, newHealthBar:FindFirstChild("ViewportFrame", true), model)
+
+				if list and list["screenGui"] then
+					health.UpdateHealth(list["screenGui"], model)
+				end
+
+				model.Humanoid.HealthChanged:Connect(function()
+					health.UpdateHealth(newHealthBar, model)
+					if list and list["screenGui"] then
+						health.UpdateHealth(list["screenGui"], model)
+					end
+				end)
+
+				model.Destroying:Connect(function()
+					newHealthBar:Destroy()
+				end)
+			else
+				for defensiveObjectName, healthSettings in pairs(defensiveObjectSettings) do
+					health.UpdateHealth(newHealthBar, model, healthSettings[1].Value, healthSettings[2].Value)
+					health.AddViewportFrame(newHealthBar, newHealthBar:FindFirstChild("ViewportFrame", true), model)
+
+					if list and list["screenGui"] then
+						health.UpdateHealth(list["screenGui"], model, healthSettings[1].Value, healthSettings[2].Value)
+					end
+
+					healthSettings[1].Changed:Connect(function()
+						if healthSettings[1].Value > 0 then
+							health.UpdateHealth(newHealthBar, model, healthSettings[1].Value, healthSettings[2].Value)
+							if list and list["screenGui"] then
+								health.UpdateHealth(list["screenGui"], model, healthSettings[1].Value, healthSettings[2].Value)
+							end
+						end
+					end)
+					healthSettings[1].Destroying:Connect(function()
+						newHealthBar:Destroy()
+						health.Setup(model, list)
+					end)
+				end
+			end
+		elseif list and list["screenGui"] then
+			health.UpdateHealth(list["screenGui"], model)
+			model.Humanoid.HealthChanged:Connect(function()
+				if list and list["screenGui"] then
+					health.UpdateHealth(list["screenGui"], model)
+				end
+			end)
+		end
+	end)
+end
+
+function health.UpdateHealth(gui, model, health, maxHealth)
+	local humanoid = model:WaitForChild("Humanoid")
+
+	if humanoid and gui then
+		local percent = (health or humanoid.Health) / (maxHealth or humanoid.MaxHealth)
+
+		for i, child in pairs(gui:GetDescendants()) do
+			if child.Name == "CurrentHealth" then
+				child.Size = UDim2.new(math.max(percent, 0), 0, child.Size.Y.Scale, 0)
+			elseif child.Name == "HealthLabel" then
+				if humanoid.Health <= 0 then
+					child.Text = humanoid.DisplayName..": 0 /" ..(maxHealth or humanoid.MaxHealth)
+				else
+					child.Text = humanoid.DisplayName..": "..(health or humanoid.Health).." /" ..(maxHealth or humanoid.MaxHealth)
+				end
+			end
+		end
+	end
+end
+
+return health
